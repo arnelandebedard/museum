@@ -68,20 +68,38 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: SafeArea(
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: sidebarWidth,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text('Museo', style: theme.textTheme.headlineMedium),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Explora por imagenes (swipe) en horizontal.',
-                        style: theme.textTheme.bodyLarge,
+          child: FutureBuilder<List<MuseumRoom>>(
+            future: _roomsFuture,
+            builder: (BuildContext context, AsyncSnapshot<List<MuseumRoom>> snapshot) {
+              final rooms = snapshot.data ?? _rooms;
+
+              return Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: sidebarWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text('Museo', style: theme.textTheme.headlineMedium),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Explora por imagenes y videos reales desde tu API.',
+                            style: theme.textTheme.bodyLarge,
+                          ),
+                          const SizedBox(height: 18),
+                          _Dots(current: _index, total: rooms.length),
+                          const Spacer(),
+                          Text(
+                            'Universidad de Montemorelos',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface.withAlpha(
+                                (0.70 * 255).round(),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 18),
                       _Dots(current: _index, total: _rooms.length),
