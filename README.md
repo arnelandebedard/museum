@@ -24,6 +24,31 @@ npm run dev
 
 La API queda por defecto en `http://localhost:4000`.
 
+### Opcion recomendada: dejar la API corriendo con Docker Compose
+
+Si quieres evitar entrar a `api/` y levantar Node manualmente cada vez, desde la raiz del proyecto puedes usar:
+
+```bash
+docker compose up -d --build
+```
+
+Eso deja la API corriendo en segundo plano en `http://localhost:4000`.
+Mientras Docker Desktop siga abierto, la API seguira disponible aunque cierres VS Code.
+
+Comandos utiles:
+
+```bash
+docker compose logs -f api
+docker compose restart api
+docker compose down
+```
+
+Para volver a iniciarla mas adelante sin reconstruir:
+
+```bash
+docker compose up -d
+```
+
 ## 2. Correr Flutter contra la API
 
 ```bash
