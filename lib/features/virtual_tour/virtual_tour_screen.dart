@@ -1,52 +1,222 @@
 import 'package:flutter/material.dart';
-import 'package:panorama_viewer/panorama_viewer.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/virtual_tour_demo.dart';
+import '../../services/museum_repository.dart';
+import '../home/home_screen.dart';
+import 'widgets/tour_artwork_dialog.dart';
+import 'widgets/tour_menu_drawer.dart';
+import 'widgets/tour_navigation_bar.dart';
+import 'widgets/tour_panorama_viewer.dart';
 
 class VirtualTourScreen extends StatefulWidget {
-  const VirtualTourScreen({super.key});
+  const VirtualTourScreen({
+    super.key,
+    required this.repository,
+    this.initialSceneId,
+  });
+
+  final MuseumRepository repository;
+  final String? initialSceneId;
 
   @override
   State<VirtualTourScreen> createState() => _VirtualTourScreenState();
 }
 
 class _VirtualTourScreenState extends State<VirtualTourScreen> {
-  static const double _initialZoom = 1.4;
-  static const double _minZoom = 1.2;
-  static const double _maxZoom = 2.6;
-  static const double _minLatitude = -55;
-  static const double _maxLatitude = 55;
-  static const int _latSegments = 64;
-  static const int _lonSegments = 128;
-
-  int _sceneIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final Set<String> _precachedScenes = <String>{};
 
+  late int _sceneIndex;
+  bool _gyroscopeEnabled = false;
+  bool _showHotspotHints = true;
+
   VirtualTourScene get _scene => demoVirtualTourScenes[_sceneIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _sceneIndex = _findInitialIndex();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _precacheScene(_scene);
-      for (final hotspot in _scene.hotspots) {
-        final targetScene = demoVirtualTourScenes.firstWhere(
-          (scene) => scene.id == hotspot.targetSceneId,
-        );
-        _precacheScene(targetScene);
-      }
+      _precacheAround(_scene);
     });
+  }
+
+  int _findInitialIndex() {
+    final sceneId = widget.initialSceneId;
+    if (sceneId == null) return 0;
+
+    final index = demoVirtualTourScenes.indexWhere(
+      (VirtualTourScene scene) => scene.id == sceneId,
+    );
+    return index < 0 ? 0 : index;
+  }
+
+  void _openDrawer() {
+    _scaffoldKey.currentState?.openDrawer();
   }
 
   void _goToScene(String sceneId) {
     final nextIndex = demoVirtualTourScenes.indexWhere(
-      (scene) => scene.id == sceneId,
+      (VirtualTourScene scene) => scene.id == sceneId,
     );
     if (nextIndex < 0 || nextIndex == _sceneIndex) return;
 
-    _precacheScene(demoVirtualTourScenes[nextIndex]);
+    _precacheAround(demoVirtualTourScenes[nextIndex]);
     setState(() => _sceneIndex = nextIndex);
+  }
+
+  void _goToAdjacent(int delta) {
+    final nextIndex = (_sceneIndex + delta).clamp(
+      0,
+      demoVirtualTourScenes.length - 1,
+    );
+    if (nextIndex == _sceneIndex) return;
+
+    _precacheAround(demoVirtualTourScenes[nextIndex]);
+    setState(() => _sceneIndex = nextIndex);
+  }
+
+  void _restartTour() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    setState(() => _sceneIndex = 0);
+  }
+
+  Future<void> _openGallery() async {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HomeScreen(repository: widget.repository),
+      ),
+    );
+  }
+
+  Future<void> _showMuseumInfo() async {
+    Navigator.of(context).pop();
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Informacion del museo'),
+          content: const Text(
+            'Recorrido virtual del museo con panoramicas 360, hotspots de '
+            'navegacion y fichas de obra. Usa el menu para abrir la galeria, '
+            'activar giroscopio o reiniciar el circuito.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showArtworkInfo(VirtualTourArtwork artwork) async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withAlpha((0.66 * 255).round()),
+      builder: (_) => TourArtworkDialog(artwork: artwork),
+    );
+  }
+
+  Future<void> _handleClose() async {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF11161B),
+      builder: (BuildContext sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Salir del recorrido',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Puedes volver a la galeria o cerrar la aplicacion.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    _openGallery();
+                  },
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Ir a la galeria'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                      color: Colors.white.withAlpha((0.18 * 255).round()),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    SystemNavigator.pop();
+                  },
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Cerrar aplicacion'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _precacheAround(VirtualTourScene scene) {
+    _precacheScene(scene);
+
+    final currentIndex = demoVirtualTourScenes.indexWhere(
+      (VirtualTourScene item) => item.id == scene.id,
+    );
+
+    if (currentIndex > 0) {
+      _precacheScene(demoVirtualTourScenes[currentIndex - 1]);
+    }
+
+    if (currentIndex < demoVirtualTourScenes.length - 1) {
+      _precacheScene(demoVirtualTourScenes[currentIndex + 1]);
+    }
+
+    for (final VirtualTourHotspot hotspot in scene.hotspots) {
+      if (hotspot.targetSceneId == null) continue;
+
+      final VirtualTourScene target = demoVirtualTourScenes.firstWhere(
+        (VirtualTourScene item) => item.id == hotspot.targetSceneId,
+      );
+      _precacheScene(target);
+    }
   }
 
   void _precacheScene(VirtualTourScene scene) {
@@ -61,7 +231,24 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
     final scene = _scene;
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.black,
+      drawer: TourMenuDrawer(
+        gyroscopeEnabled: _gyroscopeEnabled,
+        showHotspotHints: _showHotspotHints,
+        onOpenGallery: _openGallery,
+        onShowMuseumInfo: _showMuseumInfo,
+        onToggleGyroscope: (bool value) {
+          setState(() => _gyroscopeEnabled = value);
+        },
+        onToggleHotspotHints: (bool value) {
+          setState(() => _showHotspotHints = value);
+        },
+        onRestartTour: _restartTour,
+        onExitApp: () {
+          SystemNavigator.pop();
+        },
+      ),
       body: Stack(
         children: <Widget>[
           Positioned.fill(
@@ -69,50 +256,75 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
               duration: const Duration(milliseconds: 420),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
-              child: PanoramaViewer(
-                key: ValueKey<String>(scene.id),
-                longitude: scene.initialLongitude,
-                latitude: scene.initialLatitude,
-                // `flutter_cube` drops partially clipped triangles instead of
-                // clipping them, so keeping the sphere denser and the camera a
-                // bit away from the poles avoids black gaps in the panorama.
-                minLatitude: _minLatitude,
-                maxLatitude: _maxLatitude,
-                zoom: _initialZoom,
-                minZoom: _minZoom,
-                maxZoom: _maxZoom,
-                latSegments: _latSegments,
-                lonSegments: _lonSegments,
-                sensitivity: 1.3,
-                sensorControl: SensorControl.none,
-                hotspots: scene.hotspots
-                    .map(
-                      (hotspot) => Hotspot(
-                        latitude: hotspot.latitude,
-                        longitude: hotspot.longitude,
-                        width: 138,
-                        height: 138,
-                        widget: _TourHotspot(
-                          tint: hotspot.tint,
-                          onTap: () => _goToScene(hotspot.targetSceneId),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-                child: Image.asset(scene.assetPath, fit: BoxFit.cover),
+              child: TourPanoramaViewer(
+                key: ValueKey<String>('tour_scene_${scene.id}'),
+                scene: scene,
+                gyroscopeEnabled: _gyroscopeEnabled,
+                showHotspotHints: _showHotspotHints,
+                onNavigateToScene: _goToScene,
+                onSelectArtwork: _showArtworkInfo,
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Colors.black.withAlpha((0.36 * 255).round()),
+                      Colors.transparent,
+                      Colors.transparent,
+                      Colors.black.withAlpha((0.50 * 255).round()),
+                    ],
+                    stops: const <double>[0, 0.18, 0.66, 1],
+                  ),
+                ),
               ),
             ),
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(6, 6, 10, 18),
+              child: Column(
                 children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withAlpha((0.58 * 255).round()),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          key: const ValueKey<String>('tour_open_menu'),
+                          onPressed: _openDrawer,
+                          icon: const Icon(
+                            Icons.menu_rounded,
+                            color: Colors.white,
+                          ),
+                          tooltip: 'Abrir menu',
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: _SceneHeader(
+                          key: ValueKey<String>('tour_header_${scene.id}'),
+                          title: scene.title,
+                        ),
+                      ),
+                    ],
+                  ),
                   const Spacer(),
-                  FilledButton.tonalIcon(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    label: const Text('Volver'),
+                  TourNavigationBar(
+                    canGoBack: _sceneIndex > 0,
+                    canGoForward:
+                        _sceneIndex < demoVirtualTourScenes.length - 1,
+                    onBack: () => _goToAdjacent(-1),
+                    onForward: () => _goToAdjacent(1),
+                    onClose: _handleClose,
                   ),
                 ],
               ),
@@ -124,68 +336,35 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
   }
 }
 
-class _TourHotspot extends StatefulWidget {
-  const _TourHotspot({required this.tint, required this.onTap});
+class _SceneHeader extends StatelessWidget {
+  const _SceneHeader({super.key, required this.title});
 
-  final Color tint;
-  final VoidCallback onTap;
-
-  @override
-  State<_TourHotspot> createState() => _TourHotspotState();
-}
-
-class _TourHotspotState extends State<_TourHotspot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 980),
-    )..repeat(reverse: true);
-    _scale = Tween<double>(
-      begin: 0.96,
-      end: 1.08,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final String title;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: ScaleTransition(
-          scale: _scale,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: widget.tint.withAlpha((0.88 * 255).round()),
-              shape: BoxShape.circle,
-              boxShadow: <BoxShadow>[
-                BoxShadow(
-                  color: widget.tint.withAlpha((0.44 * 255).round()),
-                  blurRadius: 22,
-                  spreadRadius: 6,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: const Icon(
-                Icons.place_rounded,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha((0.56 * 255).round()),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withAlpha((0.12 * 255).round())),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.place_rounded, color: Color(0xFFF4A261), size: 18),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(
                 color: Colors.white,
-                size: 26,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

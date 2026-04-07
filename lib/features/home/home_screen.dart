@@ -9,6 +9,8 @@ import 'widgets/room_card.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.repository});
 
+  static const String routeName = '/gallery';
+
   final MuseumRepository repository;
 
   @override
@@ -24,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = PageController(viewportFraction: 0.84);
+    _controller = PageController(viewportFraction: 0.82);
     _controller.addListener(_onScroll);
     _roomsFuture = _loadRooms();
   }
@@ -40,9 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onScroll() {
     if (_rooms.isEmpty) return;
 
-    final page = _controller.page;
+    final double? page = _controller.page;
     if (page == null) return;
-    final next = page.round().clamp(0, _rooms.length - 1);
+    final int next = page.round().clamp(0, _rooms.length - 1);
     if (next != _index) {
       setState(() => _index = next);
     }
@@ -54,10 +56,17 @@ class _HomeScreenState extends State<HomeScreen> {
     ).push(MaterialPageRoute<void>(builder: (_) => RoomScreen(room: room)));
   }
 
-  void _openVirtualTour() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const VirtualTourScreen()));
+  Future<void> _returnToTour() async {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => VirtualTourScreen(repository: widget.repository),
+      ),
+    );
   }
 
   void _retry() {
@@ -69,18 +78,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<List<MuseumRoom>> _loadRooms() async {
-    final rooms = await widget.repository.fetchRooms();
+    final List<MuseumRoom> rooms = await widget.repository.fetchRooms();
     _rooms = rooms;
     return rooms;
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final size = MediaQuery.sizeOf(context);
-    final sidebarWidth = (size.width * 0.28).clamp(260.0, 360.0);
+    final ThemeData theme = Theme.of(context);
+    final Size size = MediaQuery.sizeOf(context);
+    final double sidebarWidth = (size.width * 0.30).clamp(280.0, 380.0);
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Galeria de obras'),
+        actions: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: FilledButton.icon(
+              onPressed: _returnToTour,
+              icon: const Icon(Icons.panorama_photosphere_select_rounded),
+              label: const Text('Volver al recorrido'),
+            ),
+          ),
+        ],
+      ),
       body: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -94,70 +116,95 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: SafeArea(
+          top: false,
           child: FutureBuilder<List<MuseumRoom>>(
             future: _roomsFuture,
             builder: (BuildContext context, AsyncSnapshot<List<MuseumRoom>> snapshot) {
-              final rooms = snapshot.data ?? _rooms;
+              final List<MuseumRoom> rooms = snapshot.data ?? _rooms;
+              final MuseumRoom? selectedRoom = rooms.isEmpty
+                  ? null
+                  : rooms[_index];
 
               return Row(
                 children: <Widget>[
                   SizedBox(
                     width: sidebarWidth,
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+                      padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Text('Museo', style: theme.textTheme.headlineMedium),
+                          Text(
+                            'Coleccion permanente',
+                            style: theme.textTheme.headlineMedium,
+                          ),
                           const SizedBox(height: 10),
                           Text(
-                            'Explora por imagenes y videos reales desde tu API.',
+                            'Explora las salas disponibles y abre fichas de obra completas fuera del modo panoramico.',
                             style: theme.textTheme.bodyLarge,
                           ),
-                          const SizedBox(height: 18),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1F1B16),
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    'Recorrido virtual',
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: Colors.white,
+                          const SizedBox(height: 22),
+                          if (selectedRoom != null)
+                            DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withAlpha(
+                                  (0.78 * 255).round(),
+                                ),
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(18),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      selectedRoom.title,
+                                      style: theme.textTheme.titleLarge,
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Abre un mini tour 360 con hotspots para moverte entre escenas.',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: Colors.white70,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      selectedRoom.subtitle,
+                                      style: theme.textTheme.bodyLarge
+                                          ?.copyWith(
+                                            color: theme.colorScheme.onSurface
+                                                .withAlpha(
+                                                  (0.72 * 255).round(),
+                                                ),
+                                          ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  FilledButton.icon(
-                                    onPressed: _openVirtualTour,
-                                    icon: const Icon(
-                                      Icons.panorama_photosphere_select_rounded,
+                                    const SizedBox(height: 14),
+                                    Text(
+                                      '${selectedRoom.exhibits.length} piezas disponibles',
+                                      style: theme.textTheme.labelLarge
+                                          ?.copyWith(
+                                            color: selectedRoom.accent,
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                     ),
-                                    label: const Text('Abrir recorrido'),
-                                  ),
-                                ],
+                                    const SizedBox(height: 14),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: FilledButton.icon(
+                                        onPressed: () =>
+                                            _openRoom(selectedRoom),
+                                        icon: const Icon(
+                                          Icons.open_in_new_rounded,
+                                        ),
+                                        label: const Text('Abrir sala'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 22),
                           _Dots(current: _index, total: rooms.length),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 22),
                           Text(
-                            'Configura la URL con --dart-define=MUSEUM_API_BASE_URL=http://127.0.0.1:63808',
+                            'La galeria sigue consumiendo datos de la API o del repositorio demo. El recorrido 360 se abre como pantalla inicial y esta vista queda como acceso secundario.',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurface.withAlpha(
-                                (0.70 * 255).round(),
+                                (0.72 * 255).round(),
                               ),
                             ),
                           ),
@@ -193,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller: _controller,
                             itemCount: rooms.length,
                             itemBuilder: (BuildContext context, int index) {
-                              final room = rooms[index];
+                              final MuseumRoom room = rooms[index];
                               return Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 18,
@@ -223,16 +270,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _Dots extends StatelessWidget {
   const _Dots({required this.current, required this.total});
+
   final int current;
   final int total;
 
   @override
   Widget build(BuildContext context) {
-    final ink = Theme.of(context).colorScheme.onSurface;
+    final Color ink = Theme.of(context).colorScheme.onSurface;
 
     return Row(
       children: List<Widget>.generate(total, (int i) {
-        final active = i == current;
+        final bool active = i == current;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           margin: const EdgeInsets.only(right: 8),
@@ -256,37 +304,35 @@ class _ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final ThemeData theme = Theme.of(context);
 
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                Icons.cloud_off_rounded,
-                size: 44,
-                color: theme.colorScheme.primary,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 52,
+              color: theme.colorScheme.onSurface.withAlpha(
+                (0.54 * 255).round(),
               ),
-              const SizedBox(height: 14),
-              Text(
-                'No se pudo cargar el catalogo',
-                style: theme.textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                message,
-                style: theme.textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 18),
-              FilledButton(onPressed: onRetry, child: const Text('Reintentar')),
-            ],
-          ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No fue posible cargar la galeria',
+              style: theme.textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Reintentar'),
+            ),
+          ],
         ),
       ),
     );
